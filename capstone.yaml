@@ -1,0 +1,9 @@
+run: uvicorn src.main:app --host 0.0.0.0 --port 8000
+seed: python -m src.batch
+test: pytest
+base_url: http://localhost:8000
+endpoints:
+  - path: /recommend
+    method: POST
+  - path: /review
+    method: POST

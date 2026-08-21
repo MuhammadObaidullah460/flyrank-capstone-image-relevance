@@ -1,31 +1,40 @@
 import os
+import time
 from src.main import SessionLocal
 from src.models import ImageRecord
 from src.vision import analyze_image
 
 def process_images_in_bulk(folder_path="corpus"):
     db = SessionLocal()
+    max_retries = 3  # Retry limit set karna
+    
     try:
-        # Folder ki saari images par loop chalayein
         for filename in os.listdir(folder_path):
             if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
                 file_path = os.path.join(folder_path, filename)
                 print(f"\nProcessing {filename}...")
 
-                # Check karein agar image pehle se database mein hai toh skip karein (Idempotency)
+                # Idempotency: Check karein agar image pehle se hai
                 existing = db.query(ImageRecord).filter(ImageRecord.filename == filename).first()
                 if existing:
                     print(f"Skipping {filename} - already in database.")
                     continue
 
-                # AI se data mangwayein
-                ai_data = analyze_image(file_path)
+                ai_data = None
+                
+                # Retry Logic: Agar API fail ho toh 3 dafa koshish kare
+                for attempt in range(max_retries):
+                    ai_data = analyze_image(file_path)
+                    if "error" not in ai_data:
+                        break  # Agar error nahi aya toh loop se bahar aa jayein
+                    
+                    print(f"⚠️ Attempt {attempt + 1} failed for {filename}: {ai_data['error']}")
+                    time.sleep(2)  # 2 second ruk kar dobara try karein
 
-                if "error" in ai_data:
-                    print(f"Error processing {filename}: {ai_data['error']}")
+                if ai_data is None or "error" in ai_data:
+                    print(f"❌ Failed to process {filename} after {max_retries} attempts.")
                     continue
 
-                # Database mein save karne ke liye record banayein
                 new_record = ImageRecord(
                     filename=filename,
                     subject=ai_data.get("subject"),
@@ -34,10 +43,9 @@ def process_images_in_bulk(folder_path="corpus"):
                     caption=ai_data.get("caption"),
                     confidence=ai_data.get("confidence"),
                     status="processed",
-                    vision_cost=0.0015  # Requirement: Cost tracking per call
+                    vision_cost=0.0015
                 )
                 
-                # Agar confidence kam ho toh status flag kar dein
                 if new_record.confidence < 0.70:
                     new_record.status = "flagged"
                     print("⚠️ Low confidence detected, flagging image.")
@@ -52,5 +60,5 @@ def process_images_in_bulk(folder_path="corpus"):
         db.close()
 
 if __name__ == "__main__":
-    print("Starting Batch Vision Processing...")
+    print("Starting Batch Vision Processing with Retries...")
     process_images_in_bulk()

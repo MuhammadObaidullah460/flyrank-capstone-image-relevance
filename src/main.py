@@ -68,3 +68,33 @@ def recommend_image(request: BlogRequest):
         return {"message": "No suitable match found."}
     finally:
         db.close()
+
+class ReviewRequest(BaseModel):
+    post_id: int
+    image_id: int
+    is_approved: bool
+    reason: str = None
+
+@app.post("/review")
+def review_match(request: ReviewRequest):
+    """Human-in-the-loop review API: Approves or rejects a suggested match."""
+    from src.models import MatchReview
+    db = SessionLocal()
+    try:
+        new_review = MatchReview(
+            post_id=request.post_id,
+            image_id=request.image_id,
+            is_approved=request.is_approved,
+            reason=request.reason
+        )
+        db.add(new_review)
+        db.commit()
+        return {
+            "message": "Review saved successfully!", 
+            "status": "Approved" if request.is_approved else "Rejected"
+        }
+    except Exception as e:
+        db.rollback()
+        return {"error": str(e)}
+    finally:
+        db.close()
